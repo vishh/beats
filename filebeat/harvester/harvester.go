@@ -67,7 +67,7 @@ func (h *Harvester) open() error {
 	switch h.config.InputType {
 	case config.StdinInputType:
 		return h.openStdin()
-	case config.LogInputType:
+	case config.LogInputType, config.K8sDockerLogsInputType:
 		return h.openFile()
 	default:
 		return fmt.Errorf("Invalid input type")

@@ -36,14 +36,16 @@ var (
 )
 
 const (
-	LogInputType   = "log"
-	StdinInputType = "stdin"
+	LogInputType           = "log"
+	K8sDockerLogsInputType = "k8s-docker-logs"
+	StdinInputType         = "stdin"
 )
 
 // List of valid input types
 var ValidInputType = map[string]struct{}{
-	StdinInputType: {},
-	LogInputType:   {},
+	StdinInputType:         {},
+	LogInputType:           {},
+	K8sDockerLogsInputType: {},
 }
 
 // getConfigFiles returns list of config files.

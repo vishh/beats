@@ -3,8 +3,10 @@ package harvester
 import (
 	"errors"
 	"expvar"
+	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"golang.org/x/text/transform"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/elastic/beats/filebeat/harvester/source"
 	"github.com/elastic/beats/filebeat/input"
 	"github.com/elastic/beats/filebeat/input/file"
+	"github.com/elastic/beats/libbeat/common"
 	"github.com/elastic/beats/libbeat/logp"
 )
 
@@ -38,7 +41,7 @@ func (h *Harvester) Harvest() {
 
 	err := h.open()
 	if err != nil {
-		logp.Err("Stop Harvesting. Unexpected file opening error: %s", err)
+		logp.Err("Stop Harvesting. Unexpected file opening error: %v", err)
 		return
 	}
 
@@ -104,12 +107,47 @@ func (h *Harvester) Harvest() {
 			event.JSONConfig = h.config.JSON
 		}
 
+		// Add k8s specific metadata if required.
+		h.updateEventWithK8sMetadata(event)
+
 		// Always send event to update state, also if lines was skipped
 		// Stop harvester in case of an error
 		if !h.sendEvent(event) {
 			return
 		}
 	}
+}
+
+func (h *Harvester) updateEventWithK8sMetadata(event *input.Event) {
+	// Add labels based on log file name. This is specific to how Kubernetes handles docker log files.
+	// Example file:
+	// stress-burstable-1421158591-yi7a0_default_stress-burstable-47a28c11395749513ad3a18f190fb73602f02d1430c1da785dc8232b8fcfda74.log
+	if h.config.InputType != config.K8sDockerLogsInputType {
+		return
+	}
+	const (
+		podName       string = "pod-name"
+		podNamespace  string = "pod-namespace"
+		containerName string = "container-name"
+		containerId   string = "container-id"
+	)
+	parts := strings.Split(h.state.Fileinfo.Name(), "_")
+	if len(parts) != 3 {
+		logp.Err("Unexpected kubernetes docker container logs file name: %q", h.state.Fileinfo.Name())
+		return
+	}
+	if event.Fields == nil {
+		event.Fields = make(common.MapStr)
+	}
+	event.Fields[podName] = parts[0]
+	event.Fields[podNamespace] = parts[1]
+	containerIdIdx := strings.LastIndex(parts[2], "-")
+	if containerIdIdx < 0 {
+		logp.Err("Unexpected kubernetes docker container logs file name: %q", h.state.Fileinfo.Name())
+		return
+	}
+	event.Fields[containerName] = parts[2][:containerIdIdx-1]
+	event.Fields[containerId] = parts[2][containerIdIdx+1 : strings.Index(parts[2], ".log")-1]
 }
 
 // sendEvent sends event to the spooler channel
@@ -183,8 +221,8 @@ func (h *Harvester) validateFile(f *os.File) error {
 		return err
 	}
 	// Compares the stat of the opened file to the state given by the prospector. Abort if not match.
-	if !os.SameFile(h.state.Fileinfo, info) {
-		return errors.New("File info is not identical with opened file. Aborting harvesting and retrying file later again.")
+	if h.state.Fileinfo.Mode()&os.ModeSymlink == 0 && !os.SameFile(h.state.Fileinfo, info) {
+		return fmt.Errorf("File info is not identical with opened file. Aborting harvesting and retrying file later again.\nold: %+v\nnew: %+v", h.state.Fileinfo, info)
 	}
 
 	h.encoding, err = h.encodingFactory(f)

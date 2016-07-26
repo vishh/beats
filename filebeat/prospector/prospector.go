@@ -66,7 +66,7 @@ func (p *Prospector) Init() error {
 	switch p.config.InputType {
 	case cfg.StdinInputType:
 		prospectorer, err = NewProspectorStdin(p)
-	case cfg.LogInputType:
+	case cfg.LogInputType, cfg.K8sDockerLogsInputType:
 		prospectorer, err = NewProspectorLog(p)
 	default:
 		return fmt.Errorf("Invalid input type: %v", p.config.InputType)
